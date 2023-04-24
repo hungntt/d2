@@ -1,16 +1,5 @@
 # Deep Docking – Accelerate Virtual Screening by 50X 
 
-IMPORTANT UPDATE: a new, improved version of Deep Docking is now available at https://github.com/jamesgleave/Deep-Docking-NonAutomated with updated documentation.
-
-Deep docking (DD) is a deep learning-based tool developed to accelerate docking-based virtual screening. In this repository you can find all what you need to screen ultra-large chemical libraries such as ZINC15 database (containing >1.3 billion molecules) using your favourite docking program. For further information please refer to our [paper](https://pubs.acs.org/doi/10.1021/acscentsci.0c00229). The dataset used for building the models reported in the paper can be found at this [link](https://drive.google.com/file/d/1w86NqUk7brjDIGCxD65tFLNeQ5IgLeHZ/view?usp=sharing).
-
-
-About this repository
--------------
-
-The *pd_python* folder contains all the scripts that you need to run DD. Copy the folder to your machine prior to start. The *slurm* folder contains some examples of scripts to automate DD on clusters using slurm queueing system. The *temp* folder contains templates and examples of files that need to be created for running DD.
-
-
 Prerequisites
 -------------
 
@@ -21,28 +10,22 @@ To run DD you need to install the following packages:
 - Docking program
 
 Then you need to set up the following virtual environments:
-- Python3 virtual environment. Install [rdkit](https://rdkit.readthedocs.io/en/latest/Install.html#how-to-get-conda)
-
-- Activate the rdkit conda environment if not already activated
-
-          conda activate environment_name
-
+- Create a conda virtual environment
+```bash
+conda create -n d2 python=3.7 rdkit pip
+```
+```bash
+conda activate d2
+```
 - Install Wget package (to download the smiles for later)
-
-          pip install wget
-
-- Python3 virtual environment (different from previous one).
-
-          virtualenv -p python3 tensorflow_gpu 
-
-- Activate the virtual environment
-
-          source /path/to/tensorflow_gpu/bin/activate
+```bash
+pip install wget
+``` 
 
 - Install tensorflow-gpu, pandas, numpy, keras, matplotlib and sklearn
-
-          pip install -r requirements.txt
-
+```bash
+pip install -r requirements.txt
+```
  
 Preparing molecules for DD
 ----------------------------------------
@@ -51,26 +34,39 @@ To run the code you need to download the SMILES of the molecules and calculate t
 
 **DOWNLOAD AND PREPARE SMILES**
 
-- You can skip the next three points if you have already the database in SMILES format, or if you want to use a different database than ZINC15
-- Go [here](https://zinc15.docking.org/tranches/home/) and download the 2D SMILES (.smi) in url format
-- Activate the virtual environment where rdkit was installed
+- You can **skip this line** if you have already the database in SMILES format, or if you want to use a different database than ZINC15
+  - (Already included in this repository) Go [here](https://zinc15.docking.org/tranches/home/) and download the 2D SMILES (.smi) in url format 
+- Activate the virtual environment
 - Run
-
-          python download_zinc15.py -up path_url_file/url_file -fp path_smile_folder -fn smile_folder -tp num_cpus
+```
+python pd_python/download_zinc15.py -up path_url_file/url_file -fp path_smile_folder -fn smile_folder -tp num_cpus
+```
+For example:
+```bash
+python pd_python/download_zinc15.py -up ZINC-downloader-2D-smi.uri -fp . -fn smile_folder -tp 4
+```
           
-  This will create a *path_to_smile_folder/smile_folder* folder and download the SMILES within it. This step can take few hours, and ~84GB for 1.36 billion molecules.
+This will create a *path_to_smile_folder/smile_folder* folder and download the SMILES within it. This step can take few hours, and ~84GB for 1.36 billion molecules.
   
 - Reorganize the SMILES files into a number (final_number_of_files) of evenly populated files equal to the number of CPUs used for phase 1 (see below). Activate the tensorflow environment and run
-
-          python smile_simplification.py -sfp path_smile_folder/smile_folder -tp num_cpus -tn final_number_of_files
+```
+python pd_python/smile_simplification.py -sfp path_smile_folder/smile_folder -tp num_cpus -tn final_number_of_files
+```
+For example:
+```bash
+python pd_python/smile_simplification.py -sfp smile_folder -tp 4 -tn 4
+```
 
 **CALCULATION OF MORGAN FINGERPRINTS**
 
-- Activate the rdkit environment
 - Run the following command
-
-          python Morgan_fing.py -sfp path_smile_folder/smile_folder -fp path_morgan_folder -fn morgan_folder -tp num_cpus
-
+```
+python Morgan_fing.py -sfp path_smile_folder/smile_folder -fp path_morgan_folder -fn morgan_folder -tp num_cpus
+```
+For example:
+```bash
+python pd_python/Morgan_fing.py -sfp smile_folder -fp . -fn morgan_folder -tp 4
+```
   This will create a *path_to_morgan_folder/morgan_folder* folder, and generate the Morgan fingerprints of 1024 bits of size and radius of 2 within it. It is recommended to use as many CPUs as possible to speed up the process. This step takes ~260GB for 1.36 billion molecules
 
 
@@ -96,9 +92,10 @@ DD pipeline is divided in 5 sequential phases to be repeated over multiple itera
 **Phase 1.** *Random sampling of molecules*
 1. The number of molecules to be sampled is defined in the logs.txt file and can be modified any time during the runs (for example, to keep constant the number of molecules added to the training set between iteration 1 and the other iterations). Choose the number according with the computational resources that are available (for the paper we sampled 3 million molecules for iteration 1 (so that can be divided into 1 million each for training, validation and test) and 1 million from iteration 2 onwards, all for training), as these molecules will be docked later on. During iteration 1 this sample of molecules will be splitted in three to build initial training, validation and test set. From iteration 2 it will correspond to the number of molecules that are used for augmenting the training set (so do not worry about the naming convention from iteration 2 onwards).
 2. Run phase 1
-    
-          bash pd_python/phase_1.sh iteration_no n_cpus path_to_log_file path_tensorflow_venv
-    
+```bash 
+bash pd_python/phase_1.sh iteration_no n_cpus path_to_log_file path_tensorflow_venv
+```
+
 3. This step will create few folders and files inside the *iteration* folder relative to your current iteration. First, it will create three *txt* files containing the names of molecules that were randomly sampled. Note that the name of these files will always start with train, valid and test, even after iteration 1 (when molecules are added only to the training set). Then, a *morgan* folder will be generated, containing three *csv* files with Morgan fingerprints for the sampled molecules. Finally, phase 1 will generate three *smi* files in a *smile* folder, with the SMILES of the sampled molecules, to be used as input for docking (phase 2). 
 
 **Phase 2.** *Prepare molecules for docking*\
